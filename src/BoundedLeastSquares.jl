@@ -1,5 +1,5 @@
 module BoundedLeastSquares
-export Quadratic, min_bound_constrained_quadratic, active_set_min_bounded_quadratic, form_quadratic_from_least_squares
+export Quadratic, min_bound_constrained_quadratic, active_set_min_bound_constrained_quadratic, form_quadratic_from_least_squares
 using LinearAlgebra
 using LBFGSB
 
@@ -13,7 +13,7 @@ end
 grad(q :: Quadratic, x) = q.Q*x - q.b
 
 """ Solve min_{l ≤ x ≤ u} 0.5x^TQx - b^Tx using LBFGSB."""
-function min_bound_counstrained_quadratic(Q :: Quadratic, l, u)
+function min_bound_constrained_quadratic(Q :: Quadratic, l, u)
     n = length(l)
     optimizer = L_BFGS_B(n, n)
     bounds = vcat(fill(2, 1, n), l', u')
@@ -49,7 +49,7 @@ function _fix_values(Q_st :: Quadratic, mask, values)
 end
 
 """Attempts to solve min 0.5 x^TQx +b^Tx s.t. l ≤ x ≤ u by (repeatedly) guessing the active set."""
-function active_set_min_bounded_quadratic(Q_st :: Quadratic, l, u, max_iters = 5, tol=1E-10; mask_l = falses(length(l)), mask_u = falses(length(u)))
+function active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u, max_iters = 5, tol=1E-10; mask_l = falses(length(l)), mask_u = falses(length(u)))
     Q,b = Q_st.Q, -Q_st.b
     n = length(b)
     #if mask_l[i], x_i is constrained to be l_i
