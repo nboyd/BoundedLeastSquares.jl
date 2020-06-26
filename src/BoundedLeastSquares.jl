@@ -47,16 +47,22 @@ end
 """
 function _solve_eq_qp(Q :: Quadratic, mask, values)
     Q_new = _fix_values(Q, mask, values)
-    x_free = Q_new.Q\Q_new.b
-    x = deepcopy(values)
-    ind_free = 1
-    for i in eachindex(x)
-        if !mask[i]
-            x[i] = x_free[ind_free]
-            ind_free+=1
+
+    try
+        x_free = Q_new.Q\Q_new.b
+        x = deepcopy(values)
+        ind_free = 1
+        for i in eachindex(x)
+            if !mask[i]
+                x[i] = x_free[ind_free]
+                ind_free+=1
+            end
         end
+        return x, true
+    catch e
+        @warn e
+        return deepcopy(values), false
     end
-    x
 end
 
 
@@ -92,7 +98,10 @@ function active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u, max
             end
         end
 
-        x = _solve_eq_qp(Q_st, eq_mask, values)
+        x, eq_flag = _solve_eq_qp(Q_st, eq_mask, values)
+        if !eq_flag
+            return (zeros(n), false)
+        end
 
         #compute gradient
         g = grad(Q_st, x)
@@ -137,6 +146,7 @@ end
 
 function min_bound_constrained_quadratic_fast(Q_st :: Quadratic, l, u)
     # try netwon-type method.
+    @assert all(l .< u)
     (r, flag) = active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u)
     if !flag
         r  = min_bound_constrained_quadratic(Q_st, l, u)
@@ -162,6 +172,8 @@ end
 """
 function bounded_proximal_newton(fgh, x, l, u, iters, ftol_rel)
     v_old = Inf
+    @assert all(l .< u)
+    @assert !any(isnan.(x))
     for i in 1:iters
         v,g,H = fgh(x)
 
@@ -169,7 +181,7 @@ function bounded_proximal_newton(fgh, x, l, u, iters, ftol_rel)
             return x, true
         end
 
-        if v > v_old + 1E-10
+        if v > v_old + 1E-10 || any(isnan.(x))
             return x, false
         end
 
