@@ -1,9 +1,10 @@
 module BoundedLeastSquares
 export Quadratic, min_bound_constrained_quadratic, active_set_min_bound_constrained_quadratic,
 form_quadratic_from_least_squares, bounded_proximal_newton
-using LinearAlgebra
-using Optim
+using LinearAlgebra, SparseArrays
+# using Optim # Infinite loop...
 # using LBFGSB # Segfaults...
+using OSQP
 
 """ x -> 0.5 x^T Q x - b^T x. """
 struct Quadratic{M,V}
@@ -27,18 +28,18 @@ function _init(l,u)
     end
 end
 
-""" Solve min_{l ≤ x ≤ u} 0.5x^TQx - b^Tx using LBFGSB."""
+""" Solve min_{l ≤ x ≤ u} 0.5x^TQx - b^Tx using OSQP."""
 function min_bound_constrained_quadratic(Q :: Quadratic, l, u)
     n = length(l)
-    x_init = [_init(l,u) for (l,u) in zip(l,u)]
+    if minimum(eigvals(Q.Q)) < 0.0 # nonconvex? bail?
+        return zeros(n), false
+    else
+        model = OSQP.Model()
 
-    g!(g, x) = g.= grad(Q,x)
-    h!(h,x) = h.=Q.Q
-    f = TwiceDifferentiable(Q, g!, h!, x_init)
-
-    constraints = TwiceDifferentiableConstraints(l, u)
-
-    optimize(f, constraints, x_init, IPNewton()).minimizer
+        OSQP.setup!(model; P = sparse(Q.Q), q= -Q.b, A = sparse(I, n,n), l = l, u = u, polish = true, verbose = false)
+        results = OSQP.solve!(model)
+        results.x, true
+    end
 end
 
 """
@@ -149,9 +150,9 @@ function min_bound_constrained_quadratic_fast(Q_st :: Quadratic, l, u)
     @assert all(l .< u)
     (r, flag) = active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u)
     if !flag
-        r  = min_bound_constrained_quadratic(Q_st, l, u)
+        r, flag  = min_bound_constrained_quadratic(Q_st, l, u)
     end
-    r
+    r, flag
 end
 
 function form_quadratic_from_least_squares(A,b)
@@ -191,7 +192,10 @@ function bounded_proximal_newton(fgh, x, l, u, iters, ftol_rel)
 
         v_old = v
         f_hat = Quadratic(collect(H), -g)
-        delta_x = min_bound_constrained_quadratic_fast(f_hat, l-x, u-x)
+        delta_x, flag = min_bound_constrained_quadratic_fast(f_hat, l-x, u-x)
+        if !flag
+            return x, false
+        end
         x = x + delta_x
     end
     x, false
