@@ -61,7 +61,7 @@ function _solve_eq_qp(Q :: Quadratic, mask, values)
         end
         return x, true
     catch e
-        @warn e
+        #@warn e
         return deepcopy(values), false
     end
 end
