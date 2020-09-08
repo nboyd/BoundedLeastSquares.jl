@@ -15,19 +15,6 @@ end
 (q :: Quadratic)(x) = 0.5*dot(x,q.Q*x) - dot(q.b,x)
 grad(q :: Quadratic, x) = q.Q*x - q.b
 
-
-function _init(l,u)
-    if isfinite(l) && isfinite(u)
-        (l+u)/2
-    elseif isfinite(l)
-        l + 1.0 # 🍤
-    elseif isfinite(u)
-        u - 1.0 # 🍤
-    else
-        0.0
-    end
-end
-
 """ Solve min_{l ≤ x ≤ u} 0.5x^TQx - b^Tx using OSQP."""
 function min_bound_constrained_quadratic(Q :: Quadratic, l, u)
     n = length(l)
@@ -47,8 +34,9 @@ end
     0.5*x'*Q*x + b'*x s.t. x_i = v_i for i in mask.
 """
 function _solve_eq_qp(Q :: Quadratic, mask, values)
+    #@show typeof(Q)
     Q_new = _fix_values(Q, mask, values)
-
+    #@show typeof(Q_new)
     try
         x_free = Q_new.Q\Q_new.b
         x = deepcopy(values)
@@ -61,7 +49,6 @@ function _solve_eq_qp(Q :: Quadratic, mask, values)
         end
         return x, true
     catch e
-        #@warn e
         return deepcopy(values), false
     end
 end
@@ -85,7 +72,7 @@ function active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u, max
     #if mask_u[i], x_i is constrained to be u_i
 
     for iter in 1:max_iters
-        # set up and solve equality constrained QP
+        # set up and solve equality-constrained QP
 
         eq_mask = falses(n)
         values = zeros(n)
@@ -171,14 +158,14 @@ end
     fgh(x) should return (f(x), g, H)
     where g and H are the gradient and hessian of f.
 """
-function bounded_proximal_newton(fgh, x, l, u, iters, ftol_rel)
+function bounded_proximal_newton(fgh, x, l, u, iters, ftol_rel, gtol_abs)
     v_old = Inf
     @assert all(l .< u)
     @assert !any(isnan.(x))
     for i in 1:iters
         v,g,H = fgh(x)
 
-        if sum(abs2, g) == 0.0
+        if sum(abs2, g) ≤ gtol_abs # clipped gradient?
             return x, true
         end
 
@@ -191,7 +178,7 @@ function bounded_proximal_newton(fgh, x, l, u, iters, ftol_rel)
         end
 
         v_old = v
-        f_hat = Quadratic(collect(H), -g)
+        f_hat = Quadratic(H, -g)
         delta_x, flag = min_bound_constrained_quadratic_fast(f_hat, l-x, u-x)
         if !flag
             return x, false
