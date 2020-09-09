@@ -23,7 +23,7 @@ function min_bound_constrained_quadratic(Q :: Quadratic, l, u)
     else
         model = OSQP.Model()
 
-        OSQP.setup!(model; P = sparse(Q.Q), q= -Q.b, A = sparse(I, n,n), l = l, u = u, polish = true, verbose = false)
+        OSQP.setup!(model; P = sparse(Q.Q), q = collect(-Q.b), A = sparse(I, n,n), l = collect(l), u = collect(u), polish = true, verbose = false)
         results = OSQP.solve!(model)
         results.x, true
     end
