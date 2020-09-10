@@ -16,7 +16,7 @@ end
 grad(q :: Quadratic, x) = q.Q*x - q.b
 
 """ Solve min_{l ≤ x ≤ u} 0.5x^TQx - b^Tx using OSQP."""
-function min_bound_constrained_quadratic(Q :: Quadratic, l, u)
+function min_bound_constrained_quadratic_osqp(Q :: Quadratic, l, u)
     n = length(l)
     if minimum(eigvals(Q.Q)) < 0.0 # nonconvex? bail?
         return zeros(n), false
@@ -132,12 +132,12 @@ function active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u, max
     return (zeros(n), false)
 end
 
-function min_bound_constrained_quadratic_fast(Q_st :: Quadratic, l, u)
+function min_bound_constrained_quadratic(Q_st :: Quadratic, l, u)
     # try netwon-type method.
     @assert all(l .< u)
     (r, flag) = active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u)
     if !flag
-        r, flag  = min_bound_constrained_quadratic(Q_st, l, u)
+        r, flag  = min_bound_constrained_quadratic_osqp(Q_st, l, u)
     end
     r, flag
 end
@@ -179,7 +179,7 @@ function bounded_proximal_newton(fgh, x, l, u, iters, ftol_rel, gtol_abs)
 
         v_old = v
         f_hat = Quadratic(H, -g)
-        delta_x, flag = min_bound_constrained_quadratic_fast(f_hat, l-x, u-x)
+        delta_x, flag = min_bound_constrained_quadratic(f_hat, l-x, u-x)
         if !flag
             return x, false
         end
