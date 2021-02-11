@@ -1,15 +1,13 @@
 module BoundedLeastSquares
 export Quadratic, min_bound_constrained_quadratic, active_set_min_bound_constrained_quadratic,
-form_quadratic_from_least_squares, bounded_proximal_newton
+form_quadratic_from_least_squares
 using LinearAlgebra, SparseArrays
-# using Optim # Infinite loop...
-# using LBFGSB # Segfaults...
 using OSQP
 
 """ x -> 0.5 x^T Q x - b^T x. """
-struct Quadratic{M,V}
+struct Quadratic{M}
     Q :: M
-    b :: V
+    b :: Vector{Float64}
 end
 
 (q :: Quadratic)(x) = 0.5*dot(x,q.Q*x) - dot(q.b,x)
@@ -18,15 +16,11 @@ grad(q :: Quadratic, x) = q.Q*x - q.b
 """ Solve min_{l ≤ x ≤ u} 0.5x^TQx - b^Tx using OSQP."""
 function min_bound_constrained_quadratic_osqp(Q :: Quadratic, l, u)
     n = length(l)
-    if minimum(eigvals(Q.Q)) < 0.0 # nonconvex? bail?
-        return zeros(n), false
-    else
-        model = OSQP.Model()
+    model = OSQP.Model()
 
-        OSQP.setup!(model; P = sparse(Q.Q), q = collect(-Q.b), A = sparse(I, n,n), l = collect(l), u = collect(u), polish = true, verbose = false)
-        results = OSQP.solve!(model)
-        results.x, true
-    end
+    OSQP.setup!(model; P = sparse(Q.Q), q = collect(-Q.b), A = sparse(I, n,n), l = collect(l), u = collect(u), polish = true, verbose = false)
+    results = OSQP.solve!(model)
+    results.x, true
 end
 
 """
@@ -34,9 +28,8 @@ end
     0.5*x'*Q*x + b'*x s.t. x_i = v_i for i in mask.
 """
 function _solve_eq_qp(Q :: Quadratic, mask, values)
-    #@show typeof(Q)
     Q_new = _fix_values(Q, mask, values)
-    #@show typeof(Q_new)
+
     try
         x_free = Q_new.Q\Q_new.b
         x = deepcopy(values)
@@ -65,7 +58,7 @@ end
 
 """Attempts to solve min 0.5 x^TQx +b^Tx s.t. l ≤ x ≤ u by (repeatedly) guessing the active set.
 Returns (x, f) where f is true if the KKT conditions are satisfied. """
-function active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u, max_iters = 10, tol=1E-10; mask_l = falses(length(l)), mask_u = falses(length(u)))
+function active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l :: Vector{Float64}, u  :: Vector{Float64}, max_iters = 10, tol=1E-10; mask_l = falses(length(l)), mask_u = falses(length(u)))
     Q,b = Q_st.Q, -Q_st.b
     n = length(b)
     #if mask_l[i], x_i is constrained to be l_i
@@ -132,10 +125,10 @@ function active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u, max
     return (zeros(n), false)
 end
 
-function min_bound_constrained_quadratic(Q_st :: Quadratic, l, u)
+function min_bound_constrained_quadratic(Q_st :: Quadratic, l :: Vector{Float64}, u :: Vector{Float64}, max_iters = 10)
     # try netwon-type method.
     @assert all(l .< u)
-    (r, flag) = active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u)
+    (r, flag) = active_set_min_bound_constrained_quadratic(Q_st :: Quadratic, l, u, max_iters)
     if !flag
         r, flag  = min_bound_constrained_quadratic_osqp(Q_st, l, u)
     end
@@ -144,48 +137,6 @@ end
 
 function form_quadratic_from_least_squares(A,b)
     Quadratic(A'*A, A'*b)
-end
-
-
-
-""" Simple proximal-newton method to solve
-
-    min_x f(x)
-    s.t. l ≤ x ≤ u
-
-    returns (x,f) where f is true if the method succeeded.
-
-    fgh(x) should return (f(x), g, H)
-    where g and H are the gradient and hessian of f.
-"""
-function bounded_proximal_newton(fgh, x, l, u, iters, ftol_rel, gtol_abs)
-    v_old = Inf
-    @assert all(l .< u)
-    @assert !any(isnan.(x))
-    for i in 1:iters
-        v,g,H = fgh(x)
-
-        if sum(abs2, g) ≤ gtol_abs # clipped gradient?
-            return x, true
-        end
-
-        if v > v_old + 1E-10 || any(isnan.(x))
-            return x, false
-        end
-
-        if (v_old-v)/v < ftol_rel
-            return x, true
-        end
-
-        v_old = v
-        f_hat = Quadratic(H, -g)
-        delta_x, flag = min_bound_constrained_quadratic(f_hat, l-x, u-x)
-        if !flag
-            return x, false
-        end
-        x = x + delta_x
-    end
-    x, false
 end
 
 end
